@@ -261,8 +261,7 @@ Type logits have no tie-break, so re-typing a region can still be lumpy.
 
 **Energy.** Upkeep = per-cell costs + `MUSCLE_ACTIVE_COST × Σ activation`. A creature eats
 food within `eat_r = sqrt(n_cells)` of its **core centre** (the mouth): 1.0 for a bare
-core, ~4.69 for the eel. Bigger mouths for bigger bodies make tiny sessile bodies earn
-less. Energy caps at `max_energy = 2.5·build + 2·child_energy + 10` (eel ~90), where
+core, ~4.69 for the eel. Bigger mouths for bigger bodies make tiny bodies earn less. Energy caps at `max_energy = 2.5·build + 2·child_energy + 10` (eel ~90), where
 `child_energy = CHILD_ENERGY_FRACTION (1.5) × build`.
 
 **Reproduction.** At energy ≥ `build + child_energy + PARENT_RESERVE (0.3)·max_energy`
@@ -298,13 +297,6 @@ radius. 70% land around 5 hotspots that random-walk and all jump to new spots ev
   (300) is only a safety cap. `World.pop_target = None` disables it.
 - **Rich food:** 1% of pellets, 80 energy (10×), orange-gold; one every ~25 s at 4/s, ~10%
   of energy input. `food_k` marks kind (0 plain, 1 rich); carrion and viewer food are plain.
-
-**Open issue: sessile "plants".** A bare core costs 0.02/s and is one CPPN kick away. On a
-hotspot it nets positive, breeds at ~21 energy (eel ~64), and its buds stay on the patch.
-In 3000 s runs, 1–3-cell creatures dominated from ~750–1750 s, when the binding resource
-was population slots. Partial fixes since: soft population cap, size-scaled lifespan and
-mouth, food kept out of eat radii, hotspot relocation, predation. Untried: pellets that
-rot; a lifespan-scaled cost. Long runs still need to show whether plants are in check.
 
 ## 8. Server and viewer
 

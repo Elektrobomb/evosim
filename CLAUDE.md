@@ -116,7 +116,6 @@ physics, brain or genome code: it records why the parameters are what they are a
 ## Status (2026-10-03)
 Done: physics, RGB vision, CTRNN brain with positional I/O, reproduction, collisions,
 viewer, CPPN bodies, Hebbian plasticity + neuromodulation, predation, performance work.
-Open issue: sessile 1–3-cell "plants" can take over hotspots in long runs (ARCHITECTURE §7).
 
 ## Roadmap (rough order)
 1. ~~CPPN body encoding~~ (as `f(x, y, |y|, d, 1)`: bodies face +x, so the mirror axis is y)
