@@ -1,0 +1,4 @@
+# For plain pip; pixi.lock pins exact versions.
+numpy>=2.0
+numba>=0.61
+

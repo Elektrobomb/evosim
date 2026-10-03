@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evosim</title>
+<style>
+  :root {
+    --bg: #07111b; --panel: #0e1a26; --panel2: #132333; --line: #1f3446;
+    --text: #d8e4ee; --muted: #7f97aa; --accent: #5fd3c6; --warm: #ffb347; --cool: #5b8cff;
+    --bone: #e8e2d0; --cart: #8fb3c9; --muscle: #b0303c; --eye: #ffd166; --food: #8cff59;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #app { display: flex; height: 100%; }
+  #stage { position: relative; flex: 1; min-width: 0; }
+  #world { width: 100%; height: 100%; display: block; cursor: grab; }
+  #world.dragging { cursor: grabbing; }
+  #hint { position: absolute; left: 12px; bottom: 10px; color: var(--muted); font-size: 12px;
+    background: rgba(7,17,27,.7); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
+  #conn { position: absolute; top: 12px; left: 12px; padding: 6px 10px; border-radius: 6px;
+    background: #3a1d22; color: #ffb4b4; display: none; }
+  aside { width: 340px; flex: none; background: var(--panel); border-left: 1px solid var(--line);
+    overflow-y: auto; padding: 14px 14px 30px; }
+  h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: .02em; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    margin: 18px 0 8px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .stat { background: var(--panel2); border-radius: 6px; padding: 6px 8px; }
+  .stat b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 11px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: #35546d; }
+  button.on { background: #174744; border-color: var(--accent); color: #e6fffb; }
+  .seg { display: inline-flex; }
+  .seg button { border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  label.chk { display: inline-flex; gap: 5px; align-items: center; color: var(--muted); cursor: pointer; }
+  canvas.panel { width: 100%; background: var(--panel2); border-radius: 6px; display: block; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 12px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .bar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin: 6px 0 8px; }
+  .bar div { height: 100%; background: var(--accent); }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; font-variant-numeric: tabular-nums; }
+  .kv div { display: flex; justify-content: space-between; }
+  .kv span { color: var(--muted); }
+  #sel-empty { color: var(--muted); }
+  .chartlbl { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+  @media (max-width: 760px) {
+    #app { flex-direction: column; }
+    #stage { height: 60vh; flex: none; }
+    aside { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="world"></canvas>
+    <div id="conn">Lost connection to the simulation server. Is <code>python server.py</code> running?</div>
+    <div id="hint">Click a creature to inspect · drag to pan · scroll to zoom · double-click to drop food · space pauses</div>
+  </div>
+  <aside>
+    <h1>Evosim</h1>
+    <div class="sub">Soft-bodied cell creatures evolving in a 2D pond</div>
+
+    <h2>World</h2>
+    <div class="stats">
+      <div class="stat"><b id="s-time">0</b><span>sim time</span></div>
+      <div class="stat"><b id="s-pop">0</b><span>population</span></div>
+      <div class="stat"><b id="s-food">0</b><span>food</span></div>
+      <div class="stat"><b id="s-gen">0</b><span>max gen</span></div>
+      <div class="stat"><b id="s-mgen">0</b><span>mean gen</span></div>
+      <div class="stat"><b id="s-top">0</b><span>avg best speed</span></div>
+      <div class="stat"><b id="s-rate">0×</b><span>actual speed</span></div>
+    </div>
+    <div class="sub" style="margin-top:6px"><span id="s-bd">0 births · 0 deaths · 0 kills</span></div>
+
+    <h2>Controls</h2>
+    <div class="row">
+      <div class="seg" id="speed">
+        <button data-v="0">❚❚</button><button data-v="0.5">½×</button><button data-v="1">1×</button>
+        <button data-v="2">2×</button><button data-v="4">4×</button><button data-v="-1">Max</button>
+      </div>
+    </div>
+    <div class="row"><span class="sub" style="width:74px">Food rate</span>
+      <input type="range" id="food-rate" min="0" max="20" step="0.25" value="2"><span id="food-rate-v" class="sub" style="width:40px;text-align:right">2/s</span></div>
+    <div class="row" title="The food rate drifts up while the population is below this and down while above it. 0 = off (food rate is manual)."><span class="sub" style="width:74px">Target pop</span>
+      <input type="range" id="pop-target" min="0" max="250" step="10" value="100"><span id="pop-target-v" class="sub" style="width:40px;text-align:right">100</span></div>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="opt-eyes" checked> eye cones</label>
+      <label class="chk"><input type="checkbox" id="opt-follow" checked> follow selected</label>
+      <button id="btn-reset" style="margin-left:auto">Reset world</button>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--bone)"></i>bone</span><span><i style="background:var(--cart)"></i>cartilage</span>
+      <span><i style="background:var(--muscle)"></i>muscle</span><span><i style="background:var(--eye)"></i>eye</span>
+      <span><i style="background:hsl(190,70%,55%)"></i>core (lineage colour)</span>
+    </div>
+
+    <h2>History</h2>
+    <canvas id="chart" class="panel" height="110"></canvas>
+    <div class="chartlbl"><span style="color:var(--accent)">— population</span><span style="color:var(--warm)">— mean generation</span><span>— food</span><span style="color:var(--cool)">— avg best speed</span><span style="color:#c39bff">— food rate</span></div>
+
+    <h2>Selected creature</h2>
+    <div id="sel-empty">Click a creature in the pond.</div>
+    <div id="sel" hidden>
+      <div class="row" style="margin:0"><b id="c-title" style="font-size:14px"></b>
+        <span style="margin-left:auto" class="sub" id="c-energy"></span></div>
+      <div class="bar"><div id="c-ebar"></div></div>
+      <div class="kv" id="c-kv"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="btn-clone">Spawn mutant</button><button id="btn-kill">Kill</button>
+        <button id="btn-genome">Genome JSON</button>
+      </div>
+      <h2>Body map &amp; brain I/O positions</h2>
+      <canvas id="bodymap" class="panel" height="150"></canvas>
+      <div class="sub" style="margin-top:4px">Rings: sensor nodes (coloured by the light they are tuned to) / <span style="color:#ff6b6b">motor</span> nodes, drawn where they act. Each binds the cells whose CPPN-painted wiring address is within its evolved reach (halo), so a body mutation can carry its wiring with it. Dashed: binds nothing.</div>
+      <h2>Brain (live)</h2>
+      <canvas id="brain" class="panel" height="260"></canvas>
+      <div class="sub" style="margin-top:4px">Edges: <span style="color:var(--warm)">excitatory</span> / <span style="color:var(--cool)">inhibitory</span>, width = |weight|. Node fill = current activity.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const CORE = 0, BONE = 1, MUSCLE = 2, CART = 3, EYE = 4;
+const TYPE_COL = ["#fff", "#e8e2d0", "#b0303c", "#8fb3c9", "#ffd166"];
+
+const cv = $("world"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+const cam = { x: 55, y: 35, zoom: 8 };
+let state = null, epoch = -1, since = 0, selected = null;
+const structs = new Map();                  // creature id -> {q, t, m}
+let userMovedCam = false;
+
+// Snapshots arrive unevenly, so each frame blends from the last-drawn positions toward the
+// newest snapshot over about one snapshot interval.
+const shown = new Map();                    // creature id -> node positions as last drawn
+let blendFrom = new Map(), blendStart = 0, blendDur = 50, lastArrive = 0;
+
+// ---------------------------------------------------------------- sizing
+function fit(c) {
+  const r = c.getBoundingClientRect();
+  DPR = window.devicePixelRatio || 1;
+  c.width = Math.round(r.width * DPR); c.height = Math.round(r.height * DPR);
+  return [r.width, r.height];
+}
+function resize() {
+  [W, H] = fit(cv);
+  if (state && !userMovedCam) fitWorld();
+}
+function fitWorld() {
+  cam.x = state.W / 2; cam.y = state.H / 2;
+  cam.zoom = Math.min(W / (state.W + 6), H / (state.H + 6));
+}
+window.addEventListener("resize", resize);
+
+// ---------------------------------------------------------------- food glow sprite
+const glow = document.createElement("canvas");
+glow.width = glow.height = 64;
+{ const g = glow.getContext("2d"), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "rgba(215,255,195,1)"); grd.addColorStop(0.18, "rgba(140,255,89,.9)");
+  grd.addColorStop(0.45, "rgba(110,225,70,.25)"); grd.addColorStop(1, "rgba(80,190,50,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64); }
+const richGlow = document.createElement("canvas");
+richGlow.width = richGlow.height = 64;
+{ const g = richGlow.getContext("2d"), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "rgba(255,240,200,1)"); grd.addColorStop(0.18, "rgba(255,140,26,.95)");
+  grd.addColorStop(0.45, "rgba(240,110,20,.3)"); grd.addColorStop(1, "rgba(200,80,10,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64); }
+
+// ---------------------------------------------------------------- polling
+async function poll() {
+  const t0 = performance.now();
+  try {
+    const q = new URLSearchParams({ epoch, since });
+    const asked = selected;
+    if (asked != null) q.set("sel", asked);
+    const r = await fetch("/api/state?" + q);
+    const s = await r.json();
+    $("conn").style.display = "none";
+    if (s.epoch !== epoch) { structs.clear(); shown.clear(); since = 0; epoch = s.epoch; selected = null; }
+    const alive = new Set();
+    for (const c of s.creatures) {
+      alive.add(c.id);
+      if (c.q) { structs.set(c.id, { q: c.q, t: c.t, m: c.m }); since = Math.max(since, c.id); }
+    }
+    for (const id of structs.keys()) if (!alive.has(id)) structs.delete(id);
+    const first = !state;
+    if (!state || s.t !== state.t) {         // new sim state: blend toward it from what's on screen
+      const now = performance.now();
+      if (lastArrive) blendDur = Math.min(200, Math.max(16, 0.8 * blendDur + 0.2 * (now - lastArrive)));
+      lastArrive = now; blendStart = now;
+      blendFrom = new Map(shown);
+    } else s.creatures = state.creatures;      // same frame again: keep the blend running
+    state = s;
+    if (first) fitWorld();
+    if (asked != null && asked === selected && !s.selected) selected = null;   // it died
+    if (selected !== asked) s.selected = null;                                   // stale detail
+    updatePanel();
+  } catch (e) {
+    $("conn").style.display = "block";
+  }
+  setTimeout(poll, Math.max(0, 33 - (performance.now() - t0)));
+}
+
+function post(body) {
+  return fetch("/api/control", { method: "POST", body: JSON.stringify(body) });
+}
+
+// ---------------------------------------------------------------- camera
+function coreCentre(c) {
+  const st = structs.get(c.id); if (!st) return null;
+  let x = 0, y = 0;
+  const pts = c.d || c.n;
+  for (let k = 0; k < 4; k++) { const n = st.q[k]; x += pts[2 * n]; y += pts[2 * n + 1]; }
+  return [x / 4, y / 4];
+}
+function followCam() {
+  if (!$("opt-follow").checked || selected == null) return;
+  const c = state.creatures.find((c) => c.id === selected); if (!c) return;
+  const p = coreCentre(c); if (!p) return;
+  cam.x += (p[0] - cam.x) * 0.08; cam.y += (p[1] - cam.y) * 0.08;
+}
+// Blend every creature's node positions into c.d (the positions to draw this frame).
+function interpolate() {
+  const a = Math.min(1, (performance.now() - blendStart) / blendDur);
+  shown.clear();
+  for (const c of state.creatures) {
+    const to = c.n, from = blendFrom.get(c.id);
+    if (!c.d || c.d.length !== to.length) c.d = new Float64Array(to.length);
+    const d = c.d;
+    if (!from || from.length !== to.length) d.set(to);
+    else for (let i = 0; i < to.length; i++) d[i] = from[i] + (to[i] - from[i]) * a;
+    shown.set(c.id, d);
+  }
+}
+function frame() {
+  if (state) { interpolate(); followCam(); }
+  draw();
+  requestAnimationFrame(frame);
+}
+const toWorld = (sx, sy) => [(sx - W / 2) / cam.zoom + cam.x, -(sy - H / 2) / cam.zoom + cam.y];
+
+let drag = null;
+cv.addEventListener("mousedown", (e) => { drag = { x: e.clientX, y: e.clientY, moved: false }; });
+window.addEventListener("mousemove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) { drag.moved = true; cv.classList.add("dragging"); }
+  if (drag.moved) {
+    cam.x -= dx / cam.zoom; cam.y += dy / cam.zoom; drag.x = e.clientX; drag.y = e.clientY;
+    userMovedCam = true; $("opt-follow").checked = false;
+  }
+});
+window.addEventListener("mouseup", (e) => {
+  if (drag && !drag.moved) pick(e);
+  drag = null; cv.classList.remove("dragging");
+});
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+  const [wx, wy] = toWorld(sx, sy);
+  cam.zoom = Math.max(2, Math.min(80, cam.zoom * Math.exp(-e.deltaY * 0.0015)));
+  const [wx2, wy2] = toWorld(sx, sy);
+  cam.x += wx - wx2; cam.y += wy - wy2; userMovedCam = true;
+}, { passive: false });
+cv.addEventListener("dblclick", (e) => {
+  const r = cv.getBoundingClientRect(); const [x, y] = toWorld(e.clientX - r.left, e.clientY - r.top);
+  post({ cmd: "feed", x, y });
+});
+function pick(e) {
+  if (!state) return;
+  const r = cv.getBoundingClientRect(); const [x, y] = toWorld(e.clientX - r.left, e.clientY - r.top);
+  let best = null, bd = 2.0 * 2.0;
+  for (const c of state.creatures) for (let i = 0; i < c.n.length; i += 2) {
+    const d = (c.n[i] - x) ** 2 + (c.n[i + 1] - y) ** 2;
+    if (d < bd) { bd = d; best = c.id; }
+  }
+  selected = best;
+  if (best != null) $("opt-follow").checked = true;
+  updatePanel();
+}
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); setSpeed(state && state.speed === 0 ? lastSpeed : 0); }
+  if (e.key === "f") $("opt-follow").checked = !$("opt-follow").checked;
+  if (e.key === "Escape") { selected = null; updatePanel(); }
+});
+
+// ---------------------------------------------------------------- world drawing
+function bodyCol(rgb, a = 1, k = 1) {
+  const [r, g, b] = (rgb || [0.865, 0.235, 0.235]).map((x) => Math.min(255, Math.round(255 * k * x)));
+  return `rgba(${r},${g},${b},${a})`;
+}
+const TINT = 0.10;  // opacity of the body-colour tint drawn over every cell
+function muscleCol(a) {
+  const r = Math.round(120 + 135 * a), g = Math.round(35 + 70 * a), b = Math.round(45 + 50 * a);
+  return `rgb(${r},${g},${b})`;
+}
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#07111b"; ctx.fillRect(0, 0, cv.width, cv.height);
+  if (!state) return;
+  const z = cam.zoom * DPR;
+  ctx.setTransform(z, 0, 0, -z, (W / 2 - cam.x * cam.zoom) * DPR, (H / 2 + cam.y * cam.zoom) * DPR);
+
+  // pond
+  const grd = ctx.createLinearGradient(0, 0, 0, state.H);
+  grd.addColorStop(0, "#0c2233"); grd.addColorStop(1, "#0a1a28");
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, state.W, state.H);
+  ctx.strokeStyle = "rgba(95,211,198,.08)"; ctx.lineWidth = 1 / cam.zoom;
+  ctx.beginPath();
+  for (let x = 10; x < state.W; x += 10) { ctx.moveTo(x, 0); ctx.lineTo(x, state.H); }
+  for (let y = 10; y < state.H; y += 10) { ctx.moveTo(0, y); ctx.lineTo(state.W, y); }
+  ctx.stroke();
+  // walls (config.WALL_RGB)
+  for (const [w, a] of [[4, 0.12], [2.2, 0.25], [1, 0.5]]) {
+    ctx.strokeStyle = `rgba(191,51,255,${a})`; ctx.lineWidth = w; ctx.strokeRect(0, 0, state.W, state.H);
+  }
+  ctx.strokeStyle = "#d98cff"; ctx.lineWidth = Math.max(0.25, 1.5 / cam.zoom); ctx.strokeRect(0, 0, state.W, state.H);
+
+  // eye cones
+  const sel = state.selected;
+  if ($("opt-eyes").checked && sel) {
+    for (const e of sel.eyes) {
+      const a = Math.atan2(e.d[1], e.d[0]), h = 65 * Math.PI / 180;
+      ctx.beginPath(); ctx.moveTo(e.p[0], e.p[1]);
+      ctx.arc(e.p[0], e.p[1], e.r, a - h, a + h); ctx.closePath();
+      ctx.fillStyle = eyeLight(e.s); ctx.fill();
+      ctx.strokeStyle = "rgba(255,209,102,.25)"; ctx.lineWidth = 1 / cam.zoom; ctx.stroke();
+    }
+  }
+
+  // food
+  const f = state.food, s = 2.6;
+  for (let i = 0; i < f.length; i += 2) ctx.drawImage(glow, f[i] - s / 2, f[i + 1] - s / 2, s, s);
+  const rf = state.rich || [], rs = 5;
+  for (let i = 0; i < rf.length; i += 2) ctx.drawImage(richGlow, rf[i] - rs / 2, rf[i + 1] - rs / 2, rs, rs);
+
+  // creatures: one path per colour (a path per cell is far slower)
+  const MUS_LEVELS = 12;
+  const byType = [null, new Path2D(), null, new Path2D(), new Path2D()];
+  const mus = Array.from({ length: MUS_LEVELS }, () => new Path2D());
+  const outline = new Path2D(), selOutline = new Path2D();
+  const cores = [], tints = [];
+  for (const c of state.creatures) {
+    const st = structs.get(c.id); if (!st || !c.d) continue;
+    const n = c.d, q = st.q, edge = c.id === selected ? selOutline : outline;
+    const tint = new Path2D(); tints.push([tint, c]);
+    for (let k = 0; k < st.t.length; k++) {
+      const t = st.t[k];
+      let path;
+      if (t === MUSCLE) path = mus[Math.round((c.a[st.m[k]] || 0) * (MUS_LEVELS - 1))];
+      else if (t === CORE) { path = new Path2D(); cores.push([path, c]); }
+      else path = byType[t];
+      for (const p of [path, edge, tint]) {
+        for (let j = 0; j < 4; j++) {
+          const v = q[4 * k + j];
+          j ? p.lineTo(n[2 * v], n[2 * v + 1]) : p.moveTo(n[2 * v], n[2 * v + 1]);
+        }
+        p.closePath();
+      }
+    }
+  }
+  for (const t of [BONE, CART, EYE]) { ctx.fillStyle = TYPE_COL[t]; ctx.fill(byType[t]); }
+  mus.forEach((p, i) => { ctx.fillStyle = muscleCol(i / (MUS_LEVELS - 1)); ctx.fill(p); });
+  for (const [p, c] of cores) { ctx.fillStyle = bodyCol(c.rgb, 1, 0.65 + 0.5 * c.e); ctx.fill(p); }
+  for (const [p, c] of tints) { ctx.fillStyle = bodyCol(c.rgb, TINT); ctx.fill(p); }
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(5,12,20,.55)"; ctx.lineWidth = 0.8 / cam.zoom; ctx.stroke(outline);
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.2 / cam.zoom; ctx.stroke(selOutline);
+}
+
+// ---------------------------------------------------------------- panel
+let lastSpeed = 1;
+function setSpeed(v) {
+  if (v !== 0) lastSpeed = v;
+  post({ cmd: "speed", value: v });
+  if (state) state.speed = v;
+  markSpeed(v);
+}
+function markSpeed(v) {
+  for (const b of $("speed").children) b.classList.toggle("on", parseFloat(b.dataset.v) === v);
+}
+for (const b of $("speed").children) b.onclick = () => setSpeed(parseFloat(b.dataset.v));
+$("food-rate").oninput = (e) => {
+  $("food-rate-v").textContent = e.target.value + "/s";
+  post({ cmd: "food_rate", value: parseFloat(e.target.value) });
+};
+$("pop-target").oninput = (e) => {
+  const v = parseInt(e.target.value);
+  $("pop-target-v").textContent = v ? v : "off";
+  post({ cmd: "pop_target", value: v });
+};
+$("btn-reset").onclick = () => { post({ cmd: "reset" }); userMovedCam = false; };
+$("btn-clone").onclick = () => selected != null && post({ cmd: "clone", id: selected });
+$("btn-kill").onclick = () => selected != null && post({ cmd: "kill", id: selected });
+$("btn-genome").onclick = () => selected != null && window.open("/api/genome?id=" + selected, "_blank");
+
+function fmtTime(t) {
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return m ? `${m}m${String(s).padStart(2, "0")}` : `${s}s`;
+}
+let panelTick = 0;
+function updatePanel() {
+  if (!state) return;
+  const st = state.stats;
+  $("s-time").textContent = fmtTime(state.t);
+  $("s-pop").textContent = st.pop; $("s-food").textContent = st.rich ? `${st.food} (${st.rich} rich)` : st.food;
+  $("s-gen").textContent = st.max_gen; $("s-mgen").textContent = st.mean_gen.toFixed(1);
+  $("s-top").textContent = st.top_speed.toFixed(2);
+  $("s-rate").textContent = (state.speed === 0 ? 0 : state.rate).toFixed(1) + "×";
+  $("s-bd").textContent = `${st.births} births · ${st.deaths} deaths · ${st.kills} kills`;
+  markSpeed(state.speed);
+  if (document.activeElement !== $("food-rate")) {
+    $("food-rate").value = st.food_rate; $("food-rate-v").textContent = st.food_rate.toFixed(1) + "/s";
+  }
+  if (document.activeElement !== $("pop-target")) {
+    $("pop-target").value = st.pop_target || 0; $("pop-target-v").textContent = st.pop_target || "off";
+  }
+  if (panelTick++ % 5 === 0) drawChart();
+
+  const s = state.selected;
+  $("sel").hidden = !s; $("sel-empty").hidden = !!s;
+  if (!s) return;
+  const c = state.creatures.find((c) => c.id === s.id);
+  $("c-title").innerHTML = `Creature #${s.id} <span class="sub">· ${s.lineage} · gen ${s.gen}${s.parent ? " · parent #" + s.parent : ""}</span>`;
+  $("c-energy").textContent = `energy ${s.energy.toFixed(1)} / ${s.max_energy}`;
+  $("c-ebar").style.width = Math.max(0, 100 * s.energy / s.max_energy) + "%";
+  if (c) $("c-ebar").style.background = bodyCol(c.rgb);
+  const cells = s.cells;
+  const sp = s.speed;
+  const kv = [["age", `${fmtTime(s.age)} / ${fmtTime(s.max_age)}`],
+    ["speed now / best", `${sp.now.toFixed(2)} / ${sp.top.toFixed(2)} cells/s`],
+    ["avg speed", sp.avg.toFixed(2) + " cells/s" + (sp.parent != null ? ` <span class="sub">(parent ${sp.parent.toFixed(2)})</span>` : "")],
+    ["eaten / kills", `${s.eaten} / ${s.kills}`], ["children", s.children], ["upkeep", s.upkeep + "/s"],
+    ["mutation rate", s.mut_rate], ["oscillator", s.osc + " Hz"],
+    ["cells", cells.reduce((a, b) => a + b, 0)], ["muscle / bone", `${cells[MUSCLE]} / ${cells[BONE]}`],
+    ["cartilage / eye", `${cells[CART]} / ${cells[EYE]}`],
+    ["neurons", s.brain.kinds.filter((k) => k === "hidden").length + " hidden · "
+      + s.brain.kinds.filter((k) => k === "mod").length + " mod"],
+    ["plastic links", `${s.brain.e.filter((e) => e[3]).length} / ${s.brain.e.length}`],
+    ["body CPPN", `${s.cppn.hidden} nodes · ${s.cppn.links} links`], ["symmetry bias", s.cppn.sym]];
+  $("c-kv").innerHTML = kv.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("");
+  drawBodyMap(s); drawBrain(s);
+}
+
+function panelCanvas(id) {
+  const c = $(id), r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const h = parseInt(c.getAttribute("height"));
+  if (c.width !== Math.round(r.width * d)) { c.width = Math.round(r.width * d); c.height = Math.round(h * d); c.style.height = h + "px"; }
+  const g = c.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
+  g.clearRect(0, 0, r.width, h);
+  return [g, r.width, h];
+}
+
+function drawChart() {
+  const [g, w, h] = panelCanvas("chart");
+  const hs = state.history; if (hs.length < 2) return;
+  const series = [[1, "#5fd3c6"], [2, "#ffb347"], [3, "rgba(200,220,235,.35)"], [4, "#5b8cff"], [5, "#c39bff"]];
+  for (const [k, col] of series) {
+    const vals = hs.map((r) => r[k] ?? 0), mx = Math.max(1e-6, ...vals);
+    g.beginPath(); g.strokeStyle = col; g.lineWidth = 1.6;
+    vals.forEach((v, i) => {
+      const x = 6 + (w - 12) * i / (vals.length - 1), y = h - 8 - (h - 22) * v / mx;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    g.stroke();
+    g.fillStyle = col; g.font = "11px system-ui"; g.textAlign = "right";
+    g.fillText(Number.isInteger(mx) ? mx : mx.toFixed(1), w - 6, 12 + 12 * (k - 1));
+  }
+}
+
+function drawBodyMap(s) {
+  const [g, w, h] = panelCanvas("bodymap");
+  const xs = s.grid.map((c) => c[0]), ys = s.grid.map((c) => c[1]);
+  const x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 2, y0 = Math.min(...ys) - 1, y1 = Math.max(...ys) + 2;
+  const sc = Math.min(w / (x1 - x0), h / (y1 - y0));
+  const ox = (w - sc * (x1 - x0)) / 2, oy = (h - sc * (y1 - y0)) / 2;
+  const X = (x) => ox + (x - x0) * sc, Y = (y) => h - oy - (y - y0) * sc;
+  const rgb = (state.creatures.find((c) => c.id === s.id) || {}).rgb;
+  for (const [i, j, t] of s.grid) {
+    g.fillStyle = t === CORE ? bodyCol(rgb) : TYPE_COL[t];
+    g.fillRect(X(i) + 1, Y(j + 1) + 1, sc - 2, sc - 2);
+    g.fillStyle = bodyCol(rgb, TINT);
+    g.fillRect(X(i) + 1, Y(j + 1) + 1, sc - 2, sc - 2);
+  }
+  // I/O nodes at brain.at (what they bind), or dashed at their address if unbound; halo = reach.
+  s.brain.kinds.forEach((k, idx) => {
+    const p = s.brain.pos[idx]; if (!p) return;
+    const at = s.brain.at ? s.brain.at[idx] : p, q = at || p, reach = s.brain.reach ? s.brain.reach[idx] : 0.7;
+    const cx = X(q[0] + 0.5), cy = Y(q[1] + 0.5), col = k === "sensor" ? tuneCol(s.brain.tune[idx]) : "#ff6b6b";
+    g.setLineDash(at ? [] : [3, 3]);
+    g.beginPath(); g.arc(cx, cy, reach * sc, 0, 7); g.fillStyle = k === "sensor" ? "rgba(255,209,102,.10)" : "rgba(255,107,107,.10)"; g.fill();
+    const v = s.brain.v[idx];
+    g.beginPath(); g.arc(cx, cy, Math.max(3, sc * 0.22), 0, 7);
+    g.lineWidth = 2; g.strokeStyle = col; g.stroke();
+    g.fillStyle = k === "motor" ? `rgba(255,107,107,${(v + 1) / 2})` : `rgba(255,209,102,${Math.min(1, Math.abs(v))})`;
+    g.fill();
+  });
+  g.setLineDash([]);
+}
+
+// Eye RGB (unbounded) -> cone tint.
+function eyeLight(rgb) {
+  const m = Math.max(1e-6, ...rgb), a = 1 - Math.exp(-m);
+  const [r, g, b] = rgb.map((v) => Math.round(255 * v / m));
+  return `rgba(${r},${g},${b},${(0.04 + 0.3 * a).toFixed(3)})`;
+}
+// Sensor tuning -> the colour it's excited by.
+function tuneCol(t) {
+  if (!t) return "#ffd166";
+  const p = t.map((v) => Math.max(0, v)), m = Math.max(1e-6, ...p);
+  return `rgb(${p.map((v) => Math.round(60 + 195 * v / m)).join(",")})`;
+}
+
+function actCol(v) {
+  v = Math.max(-1, Math.min(1, v));
+  return v >= 0 ? `rgba(255,179,71,${0.15 + 0.85 * v})` : `rgba(91,140,255,${0.15 + 0.85 * -v})`;
+}
+function drawBrain(s) {
+  const [g, w, h] = panelCanvas("brain");
+  const b = s.brain, n = b.kinds.length;
+  const cols = { in: [], sensor: [], hidden: [], mod: [], motor: [] };
+  b.kinds.forEach((k, i) => cols[k].push(i));
+  const left = [...cols.in, ...cols.sensor], mid = [...cols.hidden, ...cols.mod], right = cols.motor;
+  const P = new Array(n);
+  const place = (arr, x) => arr.forEach((idx, k) => { P[idx] = [x, 18 + (h - 36) * (arr.length === 1 ? 0.5 : k / (arr.length - 1))]; });
+  place(left, 84); place(right, w - 72);
+  const hc = Math.max(1, Math.min(3, Math.ceil(mid.length / 8)));
+  for (let c = 0; c < hc; c++) place(mid.filter((_, i) => i % hc === c), 110 + (w - 220) * (hc === 1 ? 0.5 : c / (hc - 1)));
+  // plastic links dashed, modulatory purple
+  for (const [a, d, wt, pl] of b.e) {
+    const [x1, y1] = P[a], [x2, y2] = P[d];
+    g.beginPath(); g.moveTo(x1, y1);
+    if (a === d) { g.arc(x1, y1 - 9, 8, 0.5 * Math.PI, 2.5 * Math.PI); }
+    else g.bezierCurveTo((x1 + x2) / 2, y1, (x1 + x2) / 2, y2, x2, y2);
+    g.strokeStyle = b.kinds[a] === "mod" ? "rgba(199,146,234,.7)" : wt >= 0 ? "rgba(255,179,71,.55)" : "rgba(91,140,255,.55)";
+    g.setLineDash(pl ? [4, 3] : b.kinds[a] === "mod" ? [1, 3] : []);
+    g.lineWidth = Math.min(4, 0.4 + Math.abs(wt) * 0.6); g.stroke();
+  }
+  g.setLineDash([]);
+  g.font = "10px system-ui";
+  b.kinds.forEach((k, i) => {
+    const [x, y] = P[i];
+    g.beginPath(); g.arc(x, y, 6, 0, 7);
+    g.fillStyle = "#0e1a26"; g.fill(); g.fillStyle = actCol(b.v[i]); g.fill();
+    g.lineWidth = 1.5; g.strokeStyle = k === "sensor" ? tuneCol(b.tune[i]) : k === "motor" ? "#ff6b6b" : k === "in" ? "#9fb3c4" : k === "mod" ? "#c792ea" : "#5fd3c6";
+    g.stroke();
+    const p = b.pos[i], lbl = p ? `${k === "sensor" ? "eye" : "m"} ${p[0].toFixed(1)},${p[1].toFixed(1)}` : b.names[i] === "hidden" ? "" : b.names[i];
+    g.fillStyle = "#9fb3c4";
+    if (x < w / 2 && lbl) { g.textAlign = "right"; g.fillText(lbl, x - 10, y + 3); }
+    else if (lbl) { g.textAlign = "left"; g.fillText(lbl, x + 10, y + 3); }
+  });
+}
+
+resize();
+poll();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
